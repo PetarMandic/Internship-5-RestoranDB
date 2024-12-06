@@ -1,0 +1,142 @@
+CREATE TABLE IF NOT EXISTS Restaurant (
+	RestaurantId SERIAL PRIMARY KEY,
+	RestaurantName VARCHAR(50) NOT NULL,
+	City VARCHAR(50) NOT NULL,
+	Capacity INT,
+	WorkingHours DATE
+);
+
+
+CREATE TABLE IF NOT EXISTS Dish (
+	DishId SERIAL PRIMARY KEY,
+	RestaurantId INT REFERENCES Restaurant(RestaurantId),
+	DishName VARCHAR(50) NOT NULL,
+	DishCategory VARCHAR(50) NOT NULL,
+	Price DECIMAL(10,2),
+	CalorieValue INT,
+	Available BOOLEAN
+);
+
+CREATE TABLE IF NOT EXISTS UserInfo(
+	UserId SERIAL PRIMARY KEY,
+	UserName VARCHAR(30),
+	UserSurname VARCHAR(30),
+	UserAdress VARCHAR(50),
+	LoyaltyCard BOOLEAN DEFAULT FALSE
+);
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'type_of_order') THEN
+        CREATE TYPE Type_Of_Order AS ENUM ('Dostava', 'Konzumacija');
+    END IF;
+END $$;
+
+
+CREATE TABLE IF NOT EXISTS OrderInfo(
+	OrderId SERIAL PRIMARY KEY,
+	UserId INT REFERENCES UserInfo(UserId),
+	RestaurantId INT REFERENCES Restaurant(RestaurantId),
+	Price DECIMAL(10, 2),
+	Date DATE,
+	Adress VARCHAR(50),
+	TypeOfOrder Type_Of_Order
+);
+
+CREATE TABLE IF NOT EXISTS OrderMeal(
+	OrderId INT REFERENCES OrderInfo(OrderId),
+	DishId INT REFERENCES Dish(DishId),
+    Quantity INT,
+    PRIMARY KEY (OrderId, DishId)
+);
+
+CREATE TABLE IF NOT EXISTS Staff (
+    StaffId SERIAL PRIMARY KEY,
+    RestaurantId INT REFERENCES Restaurant(RestaurantId),
+    StaffName VARCHAR(50),
+    StaffSurname VARCHAR(50),
+    Position_ VARCHAR(50),
+    Age INT,
+    DriversLicence BOOLEAN
+);
+
+CREATE TABLE IF NOT EXISTS Ratings(
+	RatingId SERIAL PRIMARY KEY,
+	UserId INT REFERENCES UserInfo(UserId),
+	DishId INT REFERENCES Dish(DishId),
+	Rating INT CHECK(Rating >= 1 AND Rating <= 5),
+	Comment_ TEXT,
+	RatingDate DATE
+);
+
+CREATE TABLE IF NOT EXISTS Delivery(
+	DeliveryId SERIAL PRIMARY KEY,
+	DelivererName VARCHAR (50),
+	OrderId INT REFERENCES OrderInfo(OrderId),
+	DeliveryTime DATE,
+	DeliveryNote TEXT
+);
+
+SELECT DishName, Price FROM Dish WHERE Price < 15;
+
+SELECT OrderId, Price, Date FROM OrderInfo WHERE EXTRACT(YEAR FROM Date) = 2023 AND Price > 50;
+
+SELECT DelivererName, COUNT(DeliveryId) AS SuccesfulDeliveries FROM Delivery GROUP BY DelivererName HAVING COUNT(DeliveryId) > 100;
+
+SELECT StaffName, StaffSurname, Position_ FROM Staff JOIN Restaurant ON Staff.RestaurantId = Restaurant.RestaurantId WHERE City = 'Zagreb' AND Position_ = 'kuhar';
+
+SELECT Restaurant.RestaurantName, COUNT(OrderInfo.OrderId) AS NumberOfOrders
+FROM OrderInfo
+JOIN Restaurant ON OrderInfo.RestaurantId = Restaurant.RestaurantId
+WHERE Restaurant.City = 'Split' AND OrderInfo.Date BETWEEN '2023-01-01' AND '2023-12-31'
+GROUP BY Restaurant.RestaurantName;
+
+
+SELECT Dish.DishName, COUNT(OrderMeal.OrderId) AS TimesOrdered
+FROM Dish
+JOIN OrderMeal ON Dish.DishId = OrderMeal.DishId
+JOIN OrderInfo ON OrderMeal.OrderId = OrderInfo.OrderId
+WHERE Dish.DishCategory = 'desert'
+  AND OrderInfo.Date BETWEEN '2023-12-01' AND '2023-12-31'
+GROUP BY Dish.DishName
+HAVING COUNT(OrderMeal.OrderId) > 10;
+
+
+SELECT UserSurname, COUNT(OrderInfo.OrderId) AS NumberOfOrders
+FROM OrderInfo
+JOIN UserInfo ON OrderInfo.UserId = UserInfo.UserId
+WHERE UserInfo.UserSurname LIKE 'M%'
+GROUP BY UserInfo.UserSurname;
+
+
+SELECT Restaurant.RestaurantName, AVG(Ratings.Rating) AS AverageRating
+FROM Ratings
+JOIN Dish ON Ratings.DishId = Dish.DishId
+JOIN Restaurant ON Dish.RestaurantId = Restaurant.RestaurantId
+WHERE Restaurant.City = 'Rijeka'
+GROUP BY Restaurant.RestaurantName;
+
+
+SELECT Restaurant.RestaurantName
+FROM Restaurant
+WHERE Capacity > 30 AND EXISTS (
+    SELECT 1 FROM OrderInfo WHERE Restaurant.RestaurantId = OrderInfo.RestaurantId AND OrderInfo.TypeOfOrder = 'Dostava'
+);
+
+
+DELETE FROM Dish
+WHERE DishId NOT IN (
+    SELECT DISTINCT DishId
+    FROM OrderMeal
+    JOIN OrderInfo ON OrderMeal.OrderId = OrderInfo.OrderId
+    WHERE OrderInfo.Date > CURRENT_DATE - INTERVAL '2 years'
+);
+
+
+DELETE FROM UserInfo
+WHERE LoyaltyCard = TRUE
+  AND UserId NOT IN (
+    SELECT DISTINCT UserId
+    FROM OrderInfo
+    WHERE Date > CURRENT_DATE - INTERVAL '1 year'
+);
